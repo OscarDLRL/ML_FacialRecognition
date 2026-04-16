@@ -4,18 +4,21 @@ Reconocimiento de caras sintéticas con Ridge Regression
 Inspirado en An, Liu & Venkatesh (2007) — Face Recognition Using KRR
 ================================================================================
 """
+import os 
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Ellipse
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, confusion_matrix
+import cv2 #TODO only import used stuff
 
 RNG = np.random.default_rng(42)
 IMG_SIZE = 32          # imágenes de 32x32 como en el paper
 N_IDENTIDADES = 10
 N_POR_IDENTIDAD = 100  # 1000 imágenes en total
 
+DIR_NAME = "dataset" # Nombre del directiorio con las imagenes clasificadas
 # ----------------------------------------------------------------------
 # 1. Definición de las 10 identidades prototípicas
 # ----------------------------------------------------------------------
@@ -35,51 +38,34 @@ PROTOTIPOS = np.array([
     [-0.16, 0.22,  0.16, 0.22, 0.06,   0.00,  0.04, 0.18,   0.00, -0.28, 0.20, -0.08],  # 9
 ])
 
-# ----------------------------------------------------------------------
-# 2. Rasterizador: convierte parámetros de malla → imagen 32x32
-# ----------------------------------------------------------------------
-def rasterizar_cara(p, size=IMG_SIZE):
-    """Dibuja una cara desde un vector de 12 parámetros sobre un grid size×size."""
-    img = np.zeros((size, size))
-    # Coordenadas normalizadas en [-0.5, 0.5]
-    ys, xs = np.mgrid[0:size, 0:size] / (size - 1) - 0.5
-    ys = -ys  # invertir Y
-
-    # Óvalo facial (estructura común a todas las caras)
-    oval = ((xs/0.40)**2 + (ys/0.48)**2) < 1.0
-    img[oval] = 0.25
-
-    # Ojos (círculos)
-    for cx, cy in [(p[0], p[1]), (p[2], p[3])]:
-        eye = ((xs-cx)**2 + (ys-cy)**2) < p[4]**2
-        img[eye] = 1.0
-
-    # Nariz (línea vertical de cierto largo)
-    nose_mask = (np.abs(xs - p[5]) < 0.015) & \
-                (ys < p[6]) & (ys > p[6] - p[7])
-    img[nose_mask] = 0.85
-
-    # Boca (curva: parábola de ancho w_mouth y curvatura curv_mouth)
-    x_rel = xs - p[8]
-    y_curve = p[9] + p[11] * (x_rel / (p[10]/2))**2
-    mouth_mask = (np.abs(x_rel) < p[10]/2) & (np.abs(ys - y_curve) < 0.018)
-    img[mouth_mask] = 1.0
-
-    return img
-
+def extract_params(img):
+    """
+    Extrae parmetros para la ia de una imagen de Opencv
+    regresa un arreglo de 10 elementos (los definidos para
+    reconocimiento facial
+    """
+    #TODO HAcerla xd
+    return np.array([
+        ])
 # ----------------------------------------------------------------------
 # 3. Generación del dataset (1000 imágenes con ruido)
 # ----------------------------------------------------------------------
+
+# TODO: Por cada directorio ( categoria )
+# Por cada imagen extraer los parametros de ojos, etc usando opencv
+# Definir esos parametros como x, y la salida (folder) como Y
 def generar_dataset():
     X, y = [], []
-    for ident in range(N_IDENTIDADES):
-        base = PROTOTIPOS[ident]
-        for _ in range(N_POR_IDENTIDAD):
-            ruido = RNG.normal(0, 0.012, size=base.shape)
-            params = base + ruido
-            img = rasterizar_cara(params)
-            X.append(img.ravel())
-            y.append(ident)
+
+    i = 0
+    for d in os.scandir(DIR_NAME):
+        if d.is_dir():
+            for f in os.scandir(d):
+                img = cv2.imread(f.path)
+                X.append(extract_params(img))
+                y.append(i)
+            i += 1
+
     return np.array(X), np.array(y)
 
 print("Generando 1000 caras sintéticas...")
