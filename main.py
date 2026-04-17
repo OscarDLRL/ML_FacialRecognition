@@ -334,19 +334,20 @@ def generar_dataset():
     num_data = min(sizes)
     print("papu")
 
+    failed = ""
     i = 0
     for d in dirs_ordenadas:
         j = 0
         for f in os.scandir(d):
+            if not f.is_file():
+                continue
             if j >= num_data:
                 break
-
             img = cv2.imread(f.path)
             x = extract_params(img)
-
             if x is None:
+                failed = failed + f.path + "\n"
                 continue
-
             if np.any(np.isnan(x)):
                 print("NaN encontrado en:", f.path)
                 continue
@@ -360,6 +361,10 @@ def generar_dataset():
         i += 1
         print(j)
 
+    with open('failedimages.txt', 'w') as f:
+        f.write("IMAGENES SIN CARAS DETECTADAS\n")
+        f.write(failed)
+        
     return np.array(X), np.array(y)
 
 # ----------------------------------------------------------------------
