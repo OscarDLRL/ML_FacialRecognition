@@ -1,11 +1,14 @@
 """
 ================================================================================
-Reconocimiento de caras sintéticas con Ridge Regression
-Inspirado en An, Liu & Venkatesh (2007) — Face Recognition Using KRR
+Reconocimiento de Expresiones Faciales de Oscar
+Alimentado con fotos de Oscar
+El equipo agradece la cooperacion de oscar
 ================================================================================
 """
 import os 
 import random
+import argparse
+import pickle
 import urllib.request
 import numpy as np
 import matplotlib.pyplot as plt
@@ -25,9 +28,7 @@ N_POR_IDENTIDAD = 100  # 1000 imágenes en total
 
 DIR_NAME = "dataset" # Nombre del directiorio con las imagenes clasificadas
 
-# ---------------------------------------------------------------------------
 # MediaPipe Face Mesh landmark indices (478-point model)
-# ---------------------------------------------------------------------------
  
 # Eyes — 6 landmarks each, ordered for EAR
 LEFT_EYE  = [362, 385, 387, 263, 373, 380]
@@ -99,33 +100,12 @@ def _mouth_curvature(landmarks: list, w: int, h: int) -> float:
     centre_y = (top[1]  + bot[1])   / 2.0
     return float(centre_y - corner_y)
 
-# ----------------------------------------------------------------------
-# 1. Definición de las 10 identidades prototípicas
-# ----------------------------------------------------------------------
-# Cada fila = [cx_eyeL, cy_eyeL, cx_eyeR, cy_eyeR, r_eye,
-#              cx_nose, cy_nose, len_nose,
-#              cx_mouth, cy_mouth, w_mouth, curv_mouth]
-PROTOTIPOS = np.array([
-    [-0.20, 0.20,  0.20, 0.20, 0.06,   0.00, -0.02, 0.18,   0.00, -0.25, 0.22,  0.10],  # 0
-    [-0.25, 0.22,  0.25, 0.22, 0.08,   0.00,  0.00, 0.22,   0.00, -0.28, 0.26, -0.10],  # 1
-    [-0.15, 0.18,  0.15, 0.18, 0.05,   0.00, -0.05, 0.12,   0.00, -0.22, 0.18,  0.12],  # 2
-    [-0.30, 0.25,  0.30, 0.25, 0.09,   0.00,  0.02, 0.20,   0.00, -0.30, 0.28,  0.00],  # 3
-    [-0.18, 0.15,  0.22, 0.15, 0.06,   0.02, -0.04, 0.16,  -0.02, -0.20, 0.20,  0.08],  # 4
-    [-0.22, 0.28,  0.22, 0.28, 0.07,   0.00,  0.05, 0.25,   0.00, -0.32, 0.24, -0.05],  # 5
-    [-0.28, 0.20,  0.28, 0.20, 0.10,   0.00, -0.08, 0.10,   0.00, -0.18, 0.30,  0.14],  # 6
-    [-0.20, 0.25,  0.20, 0.25, 0.05,   0.00,  0.00, 0.20,   0.00, -0.26, 0.16, -0.12],  # 7
-    [-0.24, 0.18,  0.24, 0.18, 0.08,  -0.02, -0.03, 0.14,   0.02, -0.24, 0.22,  0.06],  # 8
-    [-0.16, 0.22,  0.16, 0.22, 0.06,   0.00,  0.04, 0.18,   0.00, -0.28, 0.20, -0.08],  # 9
-])
-
 def extract_params(img):
     """
     Extrae parmetros para la ia de una imagen de Opencv
     regresa un arreglo de 10 elementos (los definidos para
     reconocimiento facial
     """
-    #TODO HAcerla xd
-
     _MODEL_URL = (
         "https://storage.googleapis.com/mediapipe-models/"
         "face_landmarker/face_landmarker/float16/latest/face_landmarker.task"
@@ -134,7 +114,7 @@ def extract_params(img):
         os.path.expanduser("~"), ".cache", "mediapipe", "face_landmarker.task"
     )
 
-    """Download the FaceLandmarker .task file if it is not already present."""
+    #Download the FaceLandmarker .task file if it is not already present
     if not os.path.exists(model_path):
         os.makedirs(os.path.dirname(model_path), exist_ok=True)
         print(f"[facial_parameters] Downloading FaceLandmarker model to:\n  {model_path}")
@@ -143,7 +123,7 @@ def extract_params(img):
  
     h, w = img.shape[:2]
  
-    # ── Build FaceLandmarker (Tasks API, replaces mp.solutions.face_mesh) ────
+    # Build FaceLandmarker
     base_opts = mp_python.BaseOptions(model_asset_path=model_path)
     options = mp_vision.FaceLandmarkerOptions(
         base_options=base_opts,
@@ -156,21 +136,18 @@ def extract_params(img):
         output_facial_transformation_matrixes=False,
     )
  
-    # ── Convert BGR numpy array -> mediapipe.Image (RGB) ────────────────────
     rgb_frame = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     mp_image  = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
  
-    # ── Run inference ────────────────────────────────────────────────────────
     with mp_vision.FaceLandmarker.create_from_options(options) as detector:
         result = detector.detect(mp_image)
  
     if not result.face_landmarks:
         return None  # no face detected
  
-    # result.face_landmarks[0] is a list of NormalizedLandmark (x, y, z ∈ [0,1])
     lms = result.face_landmarks[0]
  
-    # ── Face bounding box for spatial normalisation ──────────────────────────
+    # Face bounding box 
     face_top_pt   = _lm_xy(lms, FACE_TOP,   w, h)
     face_bot_pt   = _lm_xy(lms, FACE_BOT,   w, h)
     face_left_pt  = _lm_xy(lms, FACE_LEFT,  w, h)
@@ -180,13 +157,13 @@ def extract_params(img):
     face_w = float(np.linalg.norm(face_right_pt - face_left_pt)) + 1e-6
  
     def norm_pt(pt: np.ndarray) -> np.ndarray:
-        """Map pixel (x, y) into face-bounding-box-relative [0, 1] space."""
+        # Normalize
         return np.array([
             (pt[0] - face_left_pt[0]) / face_w,
             (pt[1] - face_top_pt[1])  / face_h,
         ], dtype=np.float32)
  
-    # ── Left eye  [indices 0-4] ───────────────────────────────────────────────
+    # Left eye  [indices 0-4] 
     l_eye_pts    = [_lm_xy(lms, i, w, h) for i in LEFT_EYE]
     l_eye_center = norm_pt(np.mean(l_eye_pts, axis=0))
     l_eye_w      = float(np.linalg.norm(l_eye_pts[0] - l_eye_pts[3])) / face_w
@@ -196,7 +173,7 @@ def extract_params(img):
     ) / face_h
     l_ear = _eye_aspect_ratio(lms, LEFT_EYE, w, h)
  
-    # ── Right eye  [5-9] ──────────────────────────────────────────────────────
+    # Right eye  [5-9] 
     r_eye_pts    = [_lm_xy(lms, i, w, h) for i in RIGHT_EYE]
     r_eye_center = norm_pt(np.mean(r_eye_pts, axis=0))
     r_eye_w      = float(np.linalg.norm(r_eye_pts[0] - r_eye_pts[3])) / face_w
@@ -206,7 +183,7 @@ def extract_params(img):
     ) / face_h
     r_ear = _eye_aspect_ratio(lms, RIGHT_EYE, w, h)
  
-    # ── Eyebrows  [10-15] ─────────────────────────────────────────────────────
+    # Eyebrows  [10-15] 
     l_brow_pts    = [_lm_xy(lms, i, w, h) for i in LEFT_BROW]
     l_brow_center = norm_pt(np.mean(l_brow_pts, axis=0))
     l_brow_curv   = _brow_curvature(lms, LEFT_BROW,  w, h) / face_h
@@ -237,15 +214,15 @@ def extract_params(img):
             _lm_xy(lms, LEFT_BROW_INNER, w, h) - _lm_xy(lms, RIGHT_BROW_INNER, w, h)
         )
     ) / face_w
-
     brow_mean_height = (left_brow_eye_dist + right_brow_eye_dist) / 2.0
-    # ── Nose  [16-18] ─────────────────────────────────────────────────────────
+
+    # Nose  [16-18] 
     nose_tip_px    = _lm_xy(lms, NOSE_TIP,    w, h)
     nose_bridge_px = _lm_xy(lms, NOSE_BRIDGE, w, h)
     nose_tip_norm  = norm_pt(nose_tip_px)
     nose_length    = float(np.linalg.norm(nose_tip_px - nose_bridge_px)) / face_h
  
-    # ── Mouth  [19-22] ────────────────────────────────────────────────────────
+    # Mouth  [19-22] 
     m_left       = _lm_xy(lms, MOUTH_LEFT,  w, h)
     m_right      = _lm_xy(lms, MOUTH_RIGHT, w, h)
     m_top        = _lm_xy(lms, MOUTH_CENTER_TOP, w, h)
@@ -265,10 +242,9 @@ def extract_params(img):
 
     mouth_width_face = float(np.linalg.norm(m_left - m_right)) / face_w
 
-    # ── Interocular distance (normalised)  [23] ──────────────────────────────
+    # Interocular distance (normalised)  [23] 
     iod_norm = interocular / face_w
  
-    # ── Assemble and return ──────────────────────────────────────────────────
     return np.array([
         # Left eye
         l_eye_center[0], l_eye_center[1],
@@ -305,10 +281,9 @@ def extract_params(img):
         mouth_corner_balance
         
     ], dtype=np.float32)
-# ----------------------------------------------------------------------
-# 3. Generación del dataset (1000 imágenes con ruido)
-# ----------------------------------------------------------------------
 
+#  Generación del dataset (1000 imágenes con ruido)
+# -----------------------------------------------------------------
 # Por cada directorio ( categoria )
 # Por cada imagen extraer los parametros de ojos, etc usando opencv
 # Definir esos parametros como x, y la salida (folder) como Y
@@ -365,10 +340,8 @@ def generar_dataset():
         
     return np.array(X), np.array(y)
 
-# ----------------------------------------------------------------------
-# 4. Construcción del símplex regular (10 vértices en R^9)
+#    Construcción del símplex regular (10 vértices en R^9)
 #    Idea central del paper: targets equidistantes y simétricos
-# ----------------------------------------------------------------------
 def simplex_regular(m):
     """Construye los m vértices de un símplex regular en R^(m-1)."""
     T = np.zeros((m, m - 1))
@@ -381,136 +354,180 @@ def simplex_regular(m):
             T[i, k] = -T[k, k] / (m - k - 1)
     return T
 
-T = simplex_regular(N_IDENTIDADES)   # (10, 9)
-print(f"\nSímplex regular construido: {T.shape}")
-print(f"Distancias por pares (deben ser iguales):")
-print(f"  ||T0 - T1|| = {np.linalg.norm(T[0]-T[1]):.4f}")
-print(f"  ||T3 - T7|| = {np.linalg.norm(T[3]-T[7]):.4f}")
 
-# ----------------------------------------------------------------------
-# 5. Entrenamiento Ridge multivariado contra los vértices del símplex
-# ----------------------------------------------------------------------
-
-X, y = generar_dataset()
-
-print(f"X.shape = {X.shape}")
-print(f"y.shape = {y.shape}")
-
-Y = T[y]   # cada imagen recibe como label el vértice de su identidad
-
-X_tr, X_te, Y_tr, Y_te, y_tr, y_te = train_test_split(
-    X, Y, y, test_size=0.05, random_state=42, stratify=y)
-print(f"\n Imagenes parametrizadas : {X.shape}")
-print(f"\nEntrenamiento: {X_tr.shape[0]} imgs | Prueba: {X_te.shape[0]} imgs")
-
-ridge = Ridge(alpha=1.0)
-ridge.fit(X_tr, Y_tr)
-
-# ----------------------------------------------------------------------
-# 6. Predicción: vecino más cercano al vértice del símplex
-# ----------------------------------------------------------------------
+# Predicción: vecino más cercano al vértice del símplex
 def predecir(modelo, X, vertices):
     Y_hat = modelo.predict(X)
     # Distancia de cada predicción a cada vértice del símplex
     dists = np.linalg.norm(Y_hat[:, None, :] - vertices[None, :, :], axis=2)
     return np.argmin(dists, axis=1)
 
-y_pred_tr = predecir(ridge, X_tr, T)
-y_pred_te = predecir(ridge, X_te, T)
+"""
+code to be skipped by default in order to test things without an entire retrain
+"""
+def train(T):
+    X, y = generar_dataset()
 
-acc_tr = accuracy_score(y_tr, y_pred_tr)
-acc_te = accuracy_score(y_te, y_pred_te)
-print(f"\n>>> Accuracy entrenamiento: {acc_tr*100:.2f}%")
-print(f">>> Accuracy prueba:        {acc_te*100:.2f}%")
+    print(f"X.shape = {X.shape}")
+    print(f"y.shape = {y.shape}")
 
-# ----------------------------------------------------------------------
-# 7. Visualización: una cara prototipo de cada identidad
-# ----------------------------------------------------------------------
-fig, axes = plt.subplots(2, 5, figsize=(11, 5))
-dirs = [
-    d.path for d in sorted(
-        [f for f in os.scandir(DIR_NAME) if f.is_dir()],
-        key=lambda x: x.name.lower()
-    )
-]
-for i, ax in enumerate(axes.flat):
-    imname = os.path.join(dirs[i], random.choice(os.listdir(dirs[i])))
-    img = cv2.imread(imname)
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    ax.imshow(img, cmap="gray_r")
-    ax.set_title(f"Identidad {i}", fontsize=10)
-    ax.axis("off")
-plt.suptitle("Las 10 identidades prototípicas", fontweight="bold")
-plt.tight_layout(); plt.show()
+    Y = T[y]   # cada imagen recibe como label el vértice de su identidad
 
-# ----------------------------------------------------------------------
-# 8. Visualización: variabilidad dentro de una identidad
-# ----------------------------------------------------------------------
-fig, axes = plt.subplots(2, 5, figsize=(11, 5))
-for ax in axes.flat:
-    imname = os.path.join(dirs[i], random.choice(os.listdir(dirs[i])))
-    img = cv2.imread(imname)
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    ax.imshow(img, cmap="gray_r"); ax.axis("off")
-plt.suptitle("10 variantes ruidosas de la identidad 3", fontweight="bold")
-plt.tight_layout(); plt.show()
+    X_tr, X_te, Y_tr, Y_te, y_tr, y_te = train_test_split(
+        X, Y, y, test_size=0.05, random_state=42, stratify=y)
+    print(f"\n Imagenes parametrizadas : {X.shape}")
+    print(f"\nEntrenamiento: {X_tr.shape[0]} imgs | Prueba: {X_te.shape[0]} imgs")
 
-# ----------------------------------------------------------------------
-# 9. Matriz de confusión
-# ----------------------------------------------------------------------
-cm = confusion_matrix(y_te, y_pred_te)
-fig, ax = plt.subplots(figsize=(7, 6))
-im = ax.imshow(cm, cmap="Blues")
-ax.set_xticks(range(10)); ax.set_yticks(range(10))
-ax.set_xlabel("Identidad predicha"); ax.set_ylabel("Identidad real")
-ax.set_title(f"Matriz de confusión — Ridge (acc {acc_te*100:.1f}%)",
-             fontweight="bold")
-for i in range(10):
-    for j in range(10):
-        if cm[i, j] > 0:
-            ax.text(j, i, cm[i, j], ha="center", va="center",
-                    color="white" if cm[i, j] > cm.max()/2 else "black",
-                    fontsize=9)
-plt.colorbar(im, ax=ax); plt.tight_layout(); plt.show()
+    ridge = Ridge(alpha=1.0)
+    ridge.fit(X_tr, Y_tr)
 
-# ----------------------------------------------------------------------
-# 10. Visualización: aciertos y errores en el conjunto de prueba
-# ----------------------------------------------------------------------
-fig, axes = plt.subplots(2, 6, figsize=(13, 5))
-idxs = RNG.choice(range(10), 12)
-for i, ax in enumerate(axes.flat):
-    real = idxs[i]
-    imname = os.path.join(dirs[real], random.choice(os.listdir(dirs[real])))
-    img = cv2.imread(imname)
+    return ridge, X_tr, X_te, Y_tr, Y_te, y_tr, y_te
 
-    params = extract_params(img)
+def main():
+    # Parse args
+    parser = argparse.ArgumentParser( 
+                                     "Facial Recognition",
+                                     "python3 main.py"
+                                     )
+    parser.add_argument("-t","--train", action="store_true")
+    args = parser.parse_args()
 
-    if params is None:
-        print("No se detectó cara en:", imname)
-        continue
+    T = simplex_regular(N_IDENTIDADES)   # (10, 9)
+    print(f"\nSímplex regular construido: {T.shape}")
+    print(f"Distancias por pares (deben ser iguales):")
+    print(f"  ||T0 - T1|| = {np.linalg.norm(T[0]-T[1]):.4f}")
+    print(f"  ||T3 - T7|| = {np.linalg.norm(T[3]-T[7]):.4f}")
 
-    if np.any(np.isnan(params)):
-        print("Imagen descartada por NaN:", imname)
-        continue
+    if args.train:
+        ridge, X_tr, X_te, Y_tr, Y_te, y_tr, y_te = train(T)
+        
+        with open('modelinfo.pkl','wb') as f:
+            data = {
+                    "ridge" : ridge,
+                    "X_tr" : X_tr,
+                    "X_te" : X_te,
+                    "Y_tr" : Y_tr,
+                    "Y_te" : Y_te,
+                    "y_tr" : y_tr,
+                    "y_te" : y_te,
+                    }
+            pickle.dump(data, f)
+    else:
+        try:
+            with open('modelinfo.pkl','rb') as f:
+                data = pickle.load(f)
+            ridge = data.get("ridge")
+            X_tr = data.get("X_tr")
+            X_te = data.get("X_te")
+            Y_tr = data.get("Y_tr")
+            Y_te = data.get("Y_te")
+            y_tr = data.get("y_tr")
+            y_te = data.get("y_te")
+        except:
+            print("error opening training data file, please run this script with the -t arg\n Error 207: Model Info not found( Is modelinfo.pkl in this directory? )")
+            return
 
-    params = np.reshape(params, (1, -1))
-    pred = predecir(ridge, params, T)
+    # Prediccion
+    y_pred_tr = predecir(ridge, X_tr, T)
+    y_pred_te = predecir(ridge, X_te, T)
 
-    pred_label = int(pred[0])
-    color = "green" if real == pred_label else "red"
+    acc_tr = accuracy_score(y_tr, y_pred_tr)
+    acc_te = accuracy_score(y_te, y_pred_te)
+    print(f"\n>>> Accuracy entrenamiento: {acc_tr*100:.2f}%")
+    print(f">>> Accuracy prueba:        {acc_te*100:.2f}%")
 
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    ax.imshow(img, cmap="gray_r")
-    ax.set_title(f"Real {real} → Pred {pred_label}", color=color, fontsize=9)
-    ax.axis("off")
+    # ----------------------------------------------------------------------
+    # 7. Visualización: una cara prototipo de cada identidad
+    # ----------------------------------------------------------------------
+    fig, axes = plt.subplots(2, 5, figsize=(11, 5))
+    dirs = [
+        d.path for d in sorted(
+            [f for f in os.scandir(DIR_NAME) if f.is_dir()],
+            key=lambda x: x.name.lower()
+        )
+    ]
+    for i, ax in enumerate(axes.flat):
+        imname = os.path.join(dirs[i], random.choice(os.listdir(dirs[i])))
+        img = cv2.imread(imname)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        ax.imshow(img, cmap="gray_r")
+        ax.set_title(f"Identidad {i}", fontsize=10)
+        ax.axis("off")
+    plt.suptitle("Las 10 identidades prototípicas", fontweight="bold")
+    plt.tight_layout(); plt.show()
 
-plt.suptitle("Resultados sobre imágenes de prueba (verde=acierto, rojo=error)",
-             fontweight="bold")
-plt.tight_layout(); plt.show()
+    # ----------------------------------------------------------------------
+    # 8. Visualización: variabilidad dentro de una identidad
+    # ----------------------------------------------------------------------
+    fig, axes = plt.subplots(2, 5, figsize=(11, 5))
+    for ax in axes.flat:
+        imname = os.path.join(dirs[i], random.choice(os.listdir(dirs[i])))
+        img = cv2.imread(imname)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        ax.imshow(img, cmap="gray_r"); ax.axis("off")
+    plt.suptitle("10 variantes ruidosas de la identidad 3", fontweight="bold")
+    plt.tight_layout(); plt.show()
 
-print("\n" + "="*60)
-print("Concepto clave (paper): los 10 targets son vértices de un")
-print("símplex regular en R^9 → puntos equidistantes y simétricos.")
-print("Ridge mapea cada imagen cerca de su vértice y se clasifica")
-print("por distancia mínima al vértice más cercano.")
-print("="*60)
+    # ----------------------------------------------------------------------
+    # 9. Matriz de confusión
+    # ----------------------------------------------------------------------
+    cm = confusion_matrix(y_te, y_pred_te)
+    fig, ax = plt.subplots(figsize=(7, 6))
+    im = ax.imshow(cm, cmap="Blues")
+    ax.set_xticks(range(10)); ax.set_yticks(range(10))
+    ax.set_xlabel("Identidad predicha"); ax.set_ylabel("Identidad real")
+    ax.set_title(f"Matriz de confusión — Ridge (acc {acc_te*100:.1f}%)",
+                 fontweight="bold")
+    for i in range(10):
+        for j in range(10):
+            if cm[i, j] > 0:
+                ax.text(j, i, cm[i, j], ha="center", va="center",
+                        color="white" if cm[i, j] > cm.max()/2 else "black",
+                        fontsize=9)
+    plt.colorbar(im, ax=ax); plt.tight_layout(); plt.show()
+
+    # ----------------------------------------------------------------------
+    # 10. Visualización: aciertos y errores en el conjunto de prueba
+    # ----------------------------------------------------------------------
+    fig, axes = plt.subplots(2, 6, figsize=(13, 5))
+    idxs = RNG.choice(range(10), 12)
+    for i, ax in enumerate(axes.flat):
+        real = idxs[i]
+        imname = os.path.join(dirs[real], random.choice(os.listdir(dirs[real])))
+        img = cv2.imread(imname)
+
+        params = extract_params(img)
+
+        if params is None:
+            print("No se detectó cara en:", imname)
+            continue
+
+        if np.any(np.isnan(params)):
+            print("Imagen descartada por NaN:", imname)
+            continue
+
+        params = np.reshape(params, (1, -1))
+        pred = predecir(ridge, params, T)
+
+        pred_label = int(pred[0])
+        color = "green" if real == pred_label else "red"
+
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        ax.imshow(img, cmap="gray_r")
+        ax.set_title(f"Real {real} → Pred {pred_label}", color=color, fontsize=9)
+        ax.axis("off")
+
+    plt.suptitle("Resultados sobre imágenes de prueba (verde=acierto, rojo=error)",
+                 fontweight="bold")
+    plt.tight_layout(); plt.show()
+
+    print("\n" + "="*60)
+    print("Concepto clave (paper): los 10 targets son vértices de un")
+    print("símplex regular en R^9 → puntos equidistantes y simétricos.")
+    print("Ridge mapea cada imagen cerca de su vértice y se clasifica")
+    print("por distancia mínima al vértice más cercano.")
+    print("="*60)
+
+
+if __name__ == '__main__':
+    main()
