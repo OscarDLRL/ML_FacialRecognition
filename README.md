@@ -2,11 +2,11 @@
 Identificacion de Expresiones faciales de Oscar (y no de Jesse Breaking Bad :( ) 
 
 ## Integrantes del Equipo
-    - Arturo Balboa
-    - Oscar de la Rosa
-    - Angel Hernández
-    - Emiliano Niño
-    - Rigoberto Soto
+- Arturo Balboa
+- Oscar de la Rosa
+- Angel Hernández
+- Emiliano Niño
+- Rigoberto Soto
 
 
 ## Uso
