@@ -6,6 +6,7 @@ Inspirado en An, Liu & Venkatesh (2007) — Face Recognition Using KRR
 """
 import os 
 import random
+import urllib.request
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Ellipse
@@ -213,7 +214,31 @@ def extract_params(img):
     r_brow_pts    = [_lm_xy(lms, i, w, h) for i in RIGHT_BROW]
     r_brow_center = norm_pt(np.mean(r_brow_pts, axis=0))
     r_brow_curv   = _brow_curvature(lms, RIGHT_BROW, w, h) / face_h
- 
+
+    left_brow_eye_dist = float(
+        np.mean(l_eye_pts, axis=0)[1] - np.mean(l_brow_pts, axis=0)[1]
+    ) / face_h
+
+    right_brow_eye_dist = float(
+        np.mean(r_eye_pts, axis=0)[1] - np.mean(r_brow_pts, axis=0)[1]
+    ) / face_h
+
+    eye_open_mean = (l_ear + r_ear) / 2.0
+    eye_open_diff = abs(l_ear - r_ear)
+
+    brow_height_diff = abs(left_brow_eye_dist - right_brow_eye_dist)
+    eye_size_diff = abs(l_eye_h_val - r_eye_h_val)
+    
+    LEFT_BROW_INNER = 296
+    RIGHT_BROW_INNER = 66
+
+    brow_inner_dist = float(
+        np.linalg.norm(
+            _lm_xy(lms, LEFT_BROW_INNER, w, h) - _lm_xy(lms, RIGHT_BROW_INNER, w, h)
+        )
+    ) / face_w
+
+    brow_mean_height = (left_brow_eye_dist + right_brow_eye_dist) / 2.0
     # ── Nose  [16-18] ─────────────────────────────────────────────────────────
     nose_tip_px    = _lm_xy(lms, NOSE_TIP,    w, h)
     nose_bridge_px = _lm_xy(lms, NOSE_BRIDGE, w, h)
@@ -223,42 +248,63 @@ def extract_params(img):
     # ── Mouth  [19-22] ────────────────────────────────────────────────────────
     m_left       = _lm_xy(lms, MOUTH_LEFT,  w, h)
     m_right      = _lm_xy(lms, MOUTH_RIGHT, w, h)
+    m_top        = _lm_xy(lms, MOUTH_CENTER_TOP, w, h)
+    m_bot        = _lm_xy(lms, MOUTH_CENTER_BOT, w, h)
+
     mouth_center = norm_pt((m_left + m_right) / 2.0)
+
     interocular  = float(np.linalg.norm(
         np.mean(l_eye_pts, axis=0) - np.mean(r_eye_pts, axis=0)
     ))
-    mouth_width = float(np.linalg.norm(m_left - m_right)) / (interocular + 1e-6)
-    mouth_curv  = _mouth_curvature(lms, w, h) / face_h
- 
+
+    mouth_width  = float(np.linalg.norm(m_left - m_right)) / (interocular + 1e-6)
+    mouth_open   = float(np.linalg.norm(m_top - m_bot)) / face_h
+    mouth_ratio  = mouth_open / (mouth_width + 1e-6)
+    mouth_curv   = _mouth_curvature(lms, w, h) / face_h
+    mouth_corner_balance = abs(m_left[1] - m_right[1]) / face_h
+
+    mouth_width_face = float(np.linalg.norm(m_left - m_right)) / face_w
+
     # ── Interocular distance (normalised)  [23] ──────────────────────────────
     iod_norm = interocular / face_w
  
     # ── Assemble and return ──────────────────────────────────────────────────
     return np.array([
-        # Left eye        [0-4]
+        # Left eye
         l_eye_center[0], l_eye_center[1],
-        l_eye_w, l_eye_h_val,
-        l_ear,
-        # Right eye       [5-9]
-        r_eye_center[0], r_eye_center[1],
-        r_eye_w, r_eye_h_val,
-        r_ear,
-        # Left brow       [10-12]
-        l_brow_center[0], l_brow_center[1],
-        l_brow_curv,
-        # Right brow      [13-15]
-        r_brow_center[0], r_brow_center[1],
-        r_brow_curv,
-        # Nose            [16-18]
-        nose_tip_norm[0], nose_tip_norm[1],
-        nose_length,
-        # Mouth           [19-22]
-        mouth_center[0], mouth_center[1],
-        mouth_width, mouth_curv,
-        # Global          [23]
-        iod_norm,
-    ], dtype=np.float32)
+        l_eye_w, l_eye_h_val, l_ear,
 
+        # Right eye
+        r_eye_center[0], r_eye_center[1],
+        r_eye_w, r_eye_h_val, r_ear,
+
+        # Left brow
+        l_brow_center[0], l_brow_center[1], l_brow_curv,
+
+        # Right brow
+        r_brow_center[0], r_brow_center[1], r_brow_curv,
+
+        # Nose
+        nose_tip_norm[0], nose_tip_norm[1], nose_length,
+
+        # Mouth
+        mouth_center[0], mouth_center[1],
+        mouth_width, mouth_open, mouth_ratio, mouth_curv,
+
+        # Global
+        iod_norm,
+        eye_open_mean,
+        eye_open_diff,
+        left_brow_eye_dist,
+        right_brow_eye_dist,
+        brow_height_diff,
+        eye_size_diff,
+        brow_inner_dist,
+        brow_mean_height,
+        mouth_width_face,
+        mouth_corner_balance
+        
+    ], dtype=np.float32)
 # ----------------------------------------------------------------------
 # 3. Generación del dataset (1000 imágenes con ruido)
 # ----------------------------------------------------------------------
@@ -269,43 +315,52 @@ def extract_params(img):
 def generar_dataset():
     X, y = [], []
 
+    dirs_ordenadas = sorted(
+        [d for d in os.scandir(DIR_NAME) if d.is_dir()],
+        key=lambda x: x.name.lower()
+    )
+
     sizes = []
     xsizes = []
-    for d in os.scandir(DIR_NAME):
-        if d.is_dir():
-            i = 0
-            for f in os.scandir(d):
-                if os.path.isfile(f):
-                    i += 1
-            sizes.append(i)
-            print(i)
+
+    for d in dirs_ordenadas:
+        i = 0
+        for f in os.scandir(d):
+            if os.path.isfile(f):
+                i += 1
+        sizes.append(i)
+        print(i)
 
     num_data = min(sizes)
     print("papu")
 
     i = 0
-    for d in os.scandir(DIR_NAME):
-        if d.is_dir():
-            j = 0
-            for f in os.scandir(d):
-                if j >= num_data:
-                    break
-                img = cv2.imread(f.path)
-                x = extract_params(img)
-                if x is None:
-                    continue
-                X.append(x)
-                y.append(i)
-                xsizes.append(len(x))
-            i += 1
-            print(j)
-    for i in xsizes:
-        print(i)
+    for d in dirs_ordenadas:
+        j = 0
+        for f in os.scandir(d):
+            if j >= num_data:
+                break
+
+            img = cv2.imread(f.path)
+            x = extract_params(img)
+
+            if x is None:
+                continue
+
+            if np.any(np.isnan(x)):
+                print("NaN encontrado en:", f.path)
+                continue
+
+            X.append(x)
+            y.append(i)
+            xsizes.append(len(x))
+            j += 1
+
+        print(i, "->", d.name)
+        i += 1
+        print(j)
 
     return np.array(X), np.array(y)
-
-X, y = generar_dataset()
-print(f"X.shape = {X.shape},  y.shape = {y.shape}")
 
 # ----------------------------------------------------------------------
 # 4. Construcción del símplex regular (10 vértices en R^9)
@@ -332,6 +387,12 @@ print(f"  ||T3 - T7|| = {np.linalg.norm(T[3]-T[7]):.4f}")
 # ----------------------------------------------------------------------
 # 5. Entrenamiento Ridge multivariado contra los vértices del símplex
 # ----------------------------------------------------------------------
+
+X, y = generar_dataset()
+
+print(f"X.shape = {X.shape}")
+print(f"y.shape = {y.shape}")
+
 Y = T[y]   # cada imagen recibe como label el vértice de su identidad
 
 X_tr, X_te, Y_tr, Y_te, y_tr, y_te = train_test_split(
@@ -363,7 +424,12 @@ print(f">>> Accuracy prueba:        {acc_te*100:.2f}%")
 # 7. Visualización: una cara prototipo de cada identidad
 # ----------------------------------------------------------------------
 fig, axes = plt.subplots(2, 5, figsize=(11, 5))
-dirs = [f.path for f in os.scandir(DIR_NAME) if f.is_dir()]
+dirs = [
+    d.path for d in sorted(
+        [f for f in os.scandir(DIR_NAME) if f.is_dir()],
+        key=lambda x: x.name.lower()
+    )
+]
 for i, ax in enumerate(axes.flat):
     imname = os.path.join(dirs[i], random.choice(os.listdir(dirs[i])))
     img = cv2.imread(imname)
@@ -409,17 +475,30 @@ plt.colorbar(im, ax=ax); plt.tight_layout(); plt.show()
 # ----------------------------------------------------------------------
 fig, axes = plt.subplots(2, 6, figsize=(13, 5))
 idxs = RNG.choice(range(10), 12)
-for i,ax in enumerate(axes.flat):
+for i, ax in enumerate(axes.flat):
     real = idxs[i]
     imname = os.path.join(dirs[real], random.choice(os.listdir(dirs[real])))
     img = cv2.imread(imname)
+
     params = extract_params(img)
-    params = np.reshape(params, (1,-1))
+
+    if params is None:
+        print("No se detectó cara en:", imname)
+        continue
+
+    if np.any(np.isnan(params)):
+        print("Imagen descartada por NaN:", imname)
+        continue
+
+    params = np.reshape(params, (1, -1))
     pred = predecir(ridge, params, T)
-    color = "green" if real == pred else "red"
+
+    pred_label = int(pred[0])
+    color = "green" if real == pred_label else "red"
+
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     ax.imshow(img, cmap="gray_r")
-    ax.set_title(f"Real {real} → Pred {pred}", color=color, fontsize=9)
+    ax.set_title(f"Real {real} → Pred {pred_label}", color=color, fontsize=9)
     ax.axis("off")
 
 plt.suptitle("Resultados sobre imágenes de prueba (verde=acierto, rojo=error)",
