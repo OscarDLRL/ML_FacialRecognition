@@ -301,6 +301,7 @@ def extract_params(img):
         eye_size_diff,
         brow_inner_dist,
         brow_mean_height,
+        mouth_width_face,
         mouth_corner_balance
         
     ], dtype=np.float32)
