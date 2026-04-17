@@ -1,11 +1,9 @@
 import pandas as pd
-from statsmodels.stats.outliers_influence import variance_inflation_factor
+from sklearn.linear_model import LinearRegression
 from main import generar_dataset
 
-# Cargar dataset
 X, y = generar_dataset()
 
-# Nombres de columnas
 columnas = [
     "l_eye_x","l_eye_y","l_eye_w","l_eye_h","l_ear",
     "r_eye_x","r_eye_y","r_eye_w","r_eye_h","r_ear",
@@ -19,25 +17,28 @@ columnas = [
     "mouth_width_face","mouth_corner_balance"
 ]
 
-# Crear DataFrame
 df = pd.DataFrame(X, columns=columnas)
 
-# Calcular VIF
-vif_data = pd.DataFrame()
-vif_data["Variable"] = df.columns
-vif_data["VIF"] = [
-    variance_inflation_factor(df.values, i)
-    for i in range(df.shape[1])
-]
+vif_results = []
 
-# Ordenar de mayor a menor
-vif_data = vif_data.sort_values(by="VIF", ascending=False)
+for i in range(df.shape[1]):
+    y_var = df.iloc[:, i]
+    X_vars = df.drop(df.columns[i], axis=1)
+
+    model = LinearRegression()
+    model.fit(X_vars, y_var)
+
+    r2 = model.score(X_vars, y_var)
+
+    if r2 >= 0.9999:
+        vif = float('inf')
+    else:
+        vif = 1 / (1 - r2)
+
+    vif_results.append((df.columns[i], vif))
+
+vif_results = sorted(vif_results, key=lambda x: x[1], reverse=True)
 
 print("\n===== Variables con mayor VIF =====")
-print(vif_data)
-
-print("\n===== Variables problemáticas (VIF > 5) =====")
-print(vif_data[vif_data["VIF"] > 5])
-
-print("\n===== Variables muy redundantes (VIF > 10) =====")
-print(vif_data[vif_data["VIF"] > 10])
+for variable, vif in vif_results:
+    print(f"{variable}: {vif:.2f}")
