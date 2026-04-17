@@ -341,8 +341,6 @@ def generar_dataset():
         for f in os.scandir(d):
             if not f.is_file():
                 continue
-            if j >= num_data:
-                break
             img = cv2.imread(f.path)
             x = extract_params(img)
             if x is None:
@@ -401,8 +399,8 @@ print(f"y.shape = {y.shape}")
 Y = T[y]   # cada imagen recibe como label el vértice de su identidad
 
 X_tr, X_te, Y_tr, Y_te, y_tr, y_te = train_test_split(
-    X, Y, y, test_size=0.25, random_state=42, stratify=y)
-
+    X, Y, y, test_size=0.05, random_state=42, stratify=y)
+print(f"\n Imagenes parametrizadas : {X.shape}")
 print(f"\nEntrenamiento: {X_tr.shape[0]} imgs | Prueba: {X_te.shape[0]} imgs")
 
 ridge = Ridge(alpha=1.0)
