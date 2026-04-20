@@ -13,9 +13,9 @@ import urllib.request
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Ellipse
-from sklearn.linear_model import Ridge
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, confusion_matrix
+from cridge import Ridge
 import cv2 #TODO only import used stuff
 import mediapipe as mp
 from mediapipe.tasks import python as mp_python
@@ -368,18 +368,23 @@ code to be skipped by default in order to test things without an entire retrain
 def train(T):
     X, y = generar_dataset()
 
+    print(T)
+
     print(f"X.shape = {X.shape}")
     print(f"y.shape = {y.shape}")
 
     Y = T[y]   # cada imagen recibe como label el vértice de su identidad
 
     X_tr, X_te, Y_tr, Y_te, y_tr, y_te = train_test_split(
-        X, Y, y, test_size=0.05, random_state=42, stratify=y)
+        X, Y, y, test_size=0.15, random_state=42, stratify=y)
     print(f"\n Imagenes parametrizadas : {X.shape}")
     print(f"\nEntrenamiento: {X_tr.shape[0]} imgs | Prueba: {X_te.shape[0]} imgs")
 
-    ridge = Ridge(alpha=1.0)
+    print ( Y_tr[0] )
+    print ( Y[0] )
+    ridge = Ridge(alpha=0.01)
     ridge.fit(X_tr, Y_tr)
+
 
     return ridge, X_tr, X_te, Y_tr, Y_te, y_tr, y_te
 
