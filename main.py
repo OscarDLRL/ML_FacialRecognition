@@ -27,6 +27,7 @@ N_IDENTIDADES = 10
 N_POR_IDENTIDAD = 100  # 1000 imágenes en total
 
 DIR_NAME = "dataset" # Nombre del directiorio con las imagenes clasificadas
+IDENTIDADES = []
 
 # MediaPipe Face Mesh landmark indices (478-point model)
  
@@ -106,6 +107,8 @@ def extract_params(img):
     regresa un arreglo de 10 elementos (los definidos para
     reconocimiento facial
     """
+    if img is None:
+        return None
     _MODEL_URL = (
         "https://storage.googleapis.com/mediapipe-models/"
         "face_landmarker/face_landmarker/float16/latest/face_landmarker.task"
@@ -298,21 +301,10 @@ def generar_dataset():
     sizes = []
     xsizes = []
 
-    for d in dirs_ordenadas:
-        i = 0
-        for f in os.scandir(d):
-            if os.path.isfile(f):
-                i += 1
-        sizes.append(i)
-        print(i)
-
-    num_data = min(sizes)
-    print("papu")
-
     failed = ""
-    i = 0
-    for d in dirs_ordenadas:
+    for i, d in enumerate(dirs_ordenadas):
         j = 0
+        IDENTIDADES.append(d.name)
         for f in os.scandir(d):
             if not f.is_file():
                 continue
@@ -330,9 +322,6 @@ def generar_dataset():
             xsizes.append(len(x))
             j += 1
 
-        print(i, "->", d.name)
-        i += 1
-        print(j)
 
     with open('failedimages.txt', 'w') as f:
         f.write("IMAGENES SIN CARAS DETECTADAS\n")
@@ -395,6 +384,8 @@ def main():
                                      "python3 main.py"
                                      )
     parser.add_argument("-t","--train", action="store_true")
+    parser.add_argument("-s","--silent", action="store_true")
+    parser.add_argument("--dataset", "-d", help="Specify the dataset directory") 
     args = parser.parse_args()
 
     T = simplex_regular(N_IDENTIDADES)   # (10, 9)
@@ -403,6 +394,17 @@ def main():
     print(f"  ||T0 - T1|| = {np.linalg.norm(T[0]-T[1]):.4f}")
     print(f"  ||T3 - T7|| = {np.linalg.norm(T[3]-T[7]):.4f}")
 
+    if args.dataset is not None:
+        if not os.path.isdir(args.dataset.strip()):
+            print("Could not find specified directory '",args.dataset.strip(),"'")
+            print(args.dataset.strip())
+            return
+        global DIR_NAME
+        DIR_NAME = args.dataset.strip()
+    else:
+        print("papu")
+
+    global IDENTIDADES 
     if args.train:
         ridge, X_tr, X_te, Y_tr, Y_te, y_tr, y_te = train(T)
         
@@ -415,6 +417,7 @@ def main():
                     "Y_te" : Y_te,
                     "y_tr" : y_tr,
                     "y_te" : y_te,
+                    "Identidades" : IDENTIDADES,
                     }
             pickle.dump(data, f)
     else:
@@ -428,6 +431,7 @@ def main():
             Y_te = data.get("Y_te")
             y_tr = data.get("y_tr")
             y_te = data.get("y_te")
+            IDENTIDADES = data.get("Identidades")
         except:
             print("error opening training data file, please run this script with the -t arg\n Error 207: Model Info not found( Is modelinfo.pkl in this directory? )")
             return
@@ -456,7 +460,7 @@ def main():
         img = cv2.imread(imname)
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         ax.imshow(img, cmap="gray_r")
-        ax.set_title(f"Identidad {i}", fontsize=10)
+        ax.set_title(f"Identidad {i} ({IDENTIDADES[i]})", fontsize=10)
         ax.axis("off")
     plt.suptitle("Las 10 identidades prototípicas", fontweight="bold")
     plt.tight_layout(); plt.show()
@@ -465,12 +469,14 @@ def main():
     # 8. Visualización: variabilidad dentro de una identidad
     # ----------------------------------------------------------------------
     fig, axes = plt.subplots(2, 5, figsize=(11, 5))
+    i = 3
     for ax in axes.flat:
-        imname = os.path.join(dirs[i], random.choice(os.listdir(dirs[i])))
+        dirname = dirs[i] 
+        imname = os.path.join(dirname, random.choice(os.listdir(dirs[i])))
         img = cv2.imread(imname)
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         ax.imshow(img, cmap="gray_r"); ax.axis("off")
-    plt.suptitle("10 variantes ruidosas de la identidad 3", fontweight="bold")
+    plt.suptitle(f"10 variantes ruidosas de la identidad {i} ({dirname})", fontweight="bold")
     plt.tight_layout(); plt.show()
 
     # ----------------------------------------------------------------------
@@ -519,7 +525,7 @@ def main():
 
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         ax.imshow(img, cmap="gray_r")
-        ax.set_title(f"Real {real} → Pred {pred_label}", color=color, fontsize=9)
+        ax.set_title(f"Real {real}({IDENTIDADES[real]}) → Pred {pred_label}({IDENTIDADES[pred_label]})", color=color, fontsize=9)
         ax.axis("off")
 
     plt.suptitle("Resultados sobre imágenes de prueba (verde=acierto, rojo=error)",
