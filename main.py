@@ -383,9 +383,10 @@ def main():
                                      "Facial Recognition",
                                      "python3 main.py"
                                      )
-    parser.add_argument("-t","--train", action="store_true")
+    parser.add_argument("-t","--train", action="store_true",
+                        help="Train new model(intead of reading existing one)")
     parser.add_argument("-s","--silent", action="store_true")
-    parser.add_argument("--dataset", "-d", help="Specify the dataset directory") 
+    parser.add_argument("--dataset", "-d", help="dataset directory") 
     args = parser.parse_args()
 
     T = simplex_regular(N_IDENTIDADES)   # (10, 9)

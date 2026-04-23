@@ -29,6 +29,12 @@ Si el archivo modelinfo.pkg no es encontrado, debera de ser generado entrenando 
 
     python main.py -t 
 
+El Script buscara siempre un directorio de archivos con el nombre de dataset, que a su vez contenga directiorios que clasifiquen las imagenes, tal y como se muestra en el [Dataset de Prueba](https://tecmx-my.sharepoint.com/:f:/g/personal/a01712275_tec_mx/IgBxGlBTNxTgT5b-AgWXaThZAeScjpOp21wgCdY8Ae6s7kA?e=Q7t4OL). 
+
+Es posible indicar el nombre de un directorio a utilizar en lugar del por defecto ('dataset')
+
+python main.py -d [DIRECTORY_NAME]
+
 
 ### Definicion de mapeo segun emocion
 
